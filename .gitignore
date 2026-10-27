@@ -17,3 +17,6 @@ dist/
 # Python caches
 __pycache__/
 *.pyc
+
+# Local copies of game saves taken before testing
+save-backups/

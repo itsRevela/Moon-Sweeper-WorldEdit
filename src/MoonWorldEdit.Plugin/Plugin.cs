@@ -1,6 +1,7 @@
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
+using Il2CppInterop.Runtime.Injection;
 
 namespace MoonWorldEdit.Plugin;
 
@@ -18,6 +19,8 @@ public sealed class Plugin : BasePlugin
     public override void Load()
     {
         Logger = Log;
+        ClassInjector.RegisterTypeInIl2Cpp<WorldEditor>();
+        AddComponent<WorldEditor>();
         Logger.LogInfo($"{Name} {Version} loaded");
     }
 }

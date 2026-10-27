@@ -28,13 +28,25 @@ public static class ClipboardFile
             Version = Version,
             Pieces = copy.Pieces.Select(p => new PieceData
             {
-                Ref = p.Ref, Kind = p.Kind, PlacedPose = p.PlacedPose, Style = p.Style, Support = p.SupportRef,
-                X = p.Relative.Position.X, Y = p.Relative.Position.Y, Z = p.Relative.Position.Z,
-                Qx = p.Relative.Rotation.X, Qy = p.Relative.Rotation.Y, Qz = p.Relative.Rotation.Z, Qw = p.Relative.Rotation.W,
+                Ref = p.Ref,
+                Kind = p.Kind,
+                PlacedPose = p.PlacedPose,
+                Style = p.Style,
+                Support = p.SupportRef,
+                X = p.Relative.Position.X,
+                Y = p.Relative.Position.Y,
+                Z = p.Relative.Position.Z,
+                Qx = p.Relative.Rotation.X,
+                Qy = p.Relative.Rotation.Y,
+                Qz = p.Relative.Rotation.Z,
+                Qw = p.Relative.Rotation.W,
             }).ToList(),
             Belts = copy.Belts.Select(b => new BeltData
             {
-                Start = Floats(b.Start), StartDirection = Floats(b.StartDirection), End = Floats(b.End), EndDirection = Floats(b.EndDirection),
+                Start = Floats(b.Start),
+                StartDirection = Floats(b.StartDirection),
+                End = Floats(b.End),
+                EndDirection = Floats(b.EndDirection),
             }).ToList(),
         };
         return JsonSerializer.Serialize(file, Options);
