@@ -1,0 +1,19 @@
+# Game-derived research material (decompiles, C# dumps, interop views): never commit
+research/decompiled/
+research/cs/
+research/interop/
+# Agent reports may quote decompiled game code
+research/reports/
+
+# Build outputs
+bin/
+obj/
+*.user
+.vs/
+
+# Release builds
+dist/
+
+# Python caches
+__pycache__/
+*.pyc

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Unity-free WorldEdit logic: selection boxes in the Moon's local frame, poses relative to an anchor, rotation,
+       and the clipboard file. Tested in tests/MoonWorldEdit.Core.Tests; the plugin maps it onto the game. -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <RootNamespace>MoonWorldEdit.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>
