@@ -67,6 +67,9 @@ internal sealed class CommandLine : IDisposable
 
     public bool IsOpen { get; private set; }
 
+    /// <summary>True while the console is open and until the key that closed it is released (TalkGuard).</summary>
+    public static bool Busy { get; private set; }
+
     /// <summary>A standing line (the wand's live selection count); empty to clear. Not logged.</summary>
     public void Status(string value)
     {
@@ -115,6 +118,8 @@ internal sealed class CommandLine : IDisposable
             return null;
         if (!IsOpen)
         {
+            if (Busy && !keyboard.enterKey.isPressed && !keyboard.numpadEnterKey.isPressed && !keyboard.escapeKey.isPressed)
+                Busy = false;
             if (keyboard.slashKey.wasPressedThisFrame && builder != null)
                 Open(builder);
             return null;
@@ -143,6 +148,7 @@ internal sealed class CommandLine : IDisposable
     private void Open(MoonDepotBuilder builder)
     {
         IsOpen = true;
+        Busy = true;
         text.Clear().Append('/');
         blockedBuilder = builder;
         if (builder.walker != null)

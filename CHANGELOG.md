@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format follows
 - The hologram failed with "The builder has no preview material". The builder only creates its ghost material once
   build mode has been used, so the hologram falls back to the game's URP shader with a glow.
 
+- Pressing Enter to run a console command also opened the game's crew chat (`MoonTalk`), which opens on Enter. A
+  Harmony patch skips the chat's update while the console is open, and until the key that closed it is released.
+
 ### Changed
 - The command line is now a console (requested): a dark see-through strip in the top-left corner with a "> " prompt,
   the last 5 messages under it like a log (while closed, only those from the last 8 seconds), and the wand's live
