@@ -44,6 +44,27 @@ public sealed class PastePlan
         return new PastePlan(pieces, belts);
     }
 
+    /// <summary>
+    /// The same pieces with fresh ids, for /redo: supports relinked to the new ids (dropped if outside the list). The
+    /// order is kept, so supports still come first.
+    /// </summary>
+    public static IReadOnlyList<PlacedPiece> Renumber(IReadOnlyList<PlacedPiece> pieces, Func<int> nextId)
+    {
+        if (pieces == null)
+            throw new ArgumentNullException(nameof(pieces));
+        if (nextId == null)
+            throw new ArgumentNullException(nameof(nextId));
+        var newIds = new Dictionary<int, int>();
+        var again = new List<PlacedPiece>(pieces.Count);
+        foreach (var piece in pieces)
+        {
+            var id = nextId();
+            newIds[piece.Id] = id;
+            again.Add(piece with { Id = id, Support = newIds.TryGetValue(piece.Support, out var s) ? s : 0 });
+        }
+        return again;
+    }
+
     private static List<CopiedPiece> SupportsFirst(IReadOnlyList<CopiedPiece> pieces)
     {
         var byRef = pieces.ToDictionary(p => p.Ref);

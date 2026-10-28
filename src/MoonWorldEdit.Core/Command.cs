@@ -12,13 +12,14 @@ public enum CommandKind
     Paste,
     PasteRelative,
     Undo,
+    Redo,
 }
 
 /// <summary>A line typed into the command line. Invalid lines carry a message for the player.</summary>
 public sealed record Command(CommandKind Kind, float Degrees = 0f, string Error = "")
 {
     public const float MaxDegrees = 3600f;
-    public const string Help = "Commands: /wand, /copy, /rotate <degrees>, /paste, /paste-relative, /undo";
+    public const string Help = "Commands: /wand, /copy, /rotate <degrees>, /paste, /paste-relative, /undo, /redo";
 
     public static Command Parse(string? text)
     {
@@ -40,6 +41,7 @@ public sealed record Command(CommandKind Kind, float Degrees = 0f, string Error 
             "/paste" => CommandKind.Paste,
             "/paste-relative" => CommandKind.PasteRelative,
             "/undo" => CommandKind.Undo,
+            "/redo" => CommandKind.Redo,
             _ => CommandKind.Invalid,
         };
         if (kind == CommandKind.Invalid)

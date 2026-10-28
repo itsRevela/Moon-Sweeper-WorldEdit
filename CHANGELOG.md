@@ -28,6 +28,9 @@ All notable changes to this project are documented here. The format follows
   count.
 
 ### Added
+- `/redo` (requested) puts back the paste `/undo` last removed, with fresh ids (the old ones may have been reused) and
+  supports relinked (`PastePlan.Renumber`). `/undo` now steps back through the last 20 pastes; a new paste clears the
+  redo history. 5 tests (85 in all).
 - `/paste-relative` (requested): pastes the copy where it was relative to you when you copied it, turned with your
   facing, with no snapping. `/copy` now records your position and facing, and the clipboard file is version 2
   (version 1 files still read, but need a fresh `/copy` for this). `/paste` and `/paste-relative` say how far from you

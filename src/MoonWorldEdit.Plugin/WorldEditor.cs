@@ -29,7 +29,9 @@ public sealed class WorldEditor : MonoBehaviour
     private const float BoxBeam = 0.06f, OutlineBeam = 0.025f; // metres
     private Wand? wand;
     private Hologram? boxHologram, pieceHologram;
-    private Paste? lastPaste;
+    private const int HistoryKept = 20; // pastes /undo can step back through
+    private readonly List<Paste> undoable = new(); // newest last
+    private readonly List<Paste> redoable = new(); // newest last; cleared by a new paste
 
     public WorldEditor(IntPtr pointer) : base(pointer) { }
 
@@ -54,7 +56,7 @@ public sealed class WorldEditor : MonoBehaviour
                 Run(line, game);
             if (game != null && !commandLine.IsOpen && wand != null)
                 UpdateWand(game, wand);
-            if (game != null && lastPaste is { Checked: false } paste && Time.unscaledTime >= paste.CheckAt)
+            if (game != null && undoable.Count > 0 && undoable[^1] is { Checked: false } paste && Time.unscaledTime >= paste.CheckAt)
                 Recheck(game, paste);
         }
         catch (Exception e)
@@ -108,6 +110,9 @@ public sealed class WorldEditor : MonoBehaviour
                 break;
             case CommandKind.Undo:
                 Undo(game!);
+                break;
+            case CommandKind.Redo:
+                Redo(game!);
                 break;
         }
     }
@@ -300,29 +305,65 @@ public sealed class WorldEditor : MonoBehaviour
             else
                 refused++;
         }
-        var belts = plan.Belts.Select(game.Add).ToList();
+        var belts = plan.Belts.Select(b => (game.Add(b), b)).ToList();
         game.Save();
-        lastPaste = new Paste(placed, belts, Time.unscaledTime + RecheckSeconds);
+        Remember(new Paste(placed, belts, Time.unscaledTime + RecheckSeconds));
+        redoable.Clear();
         var distance = game.PlayerPose() is { } me ? $", {System.Numerics.Vector3.Distance(me.Position, anchor.Position):0} m from you" : "";
         Show($"Pasted {placed.Count} pieces and {belts.Count} belts ({how}{distance})" +
             $"{(refused > 0 ? $"; the game refused to show {refused}" : "")}. /undo removes them.");
     }
 
     [HideFromIl2Cpp]
+    private void Remember(Paste paste)
+    {
+        undoable.Add(paste);
+        if (undoable.Count > HistoryKept)
+            undoable.RemoveAt(0);
+    }
+
+    [HideFromIl2Cpp]
     private void Undo(GameWorld game)
     {
-        if (lastPaste == null)
+        if (undoable.Count == 0)
         {
             Show("Nothing to undo.");
             return;
         }
-        foreach (var belt in Enumerable.Reverse(lastPaste.Belts))
-            game.RemoveBelt(belt);
-        foreach (var piece in Enumerable.Reverse(lastPaste.Pieces))
+        var paste = undoable[^1];
+        undoable.RemoveAt(undoable.Count - 1);
+        foreach (var (id, _) in Enumerable.Reverse(paste.Belts))
+            game.RemoveBelt(id);
+        foreach (var piece in Enumerable.Reverse(paste.Pieces))
             game.RemoveStructure(piece.Id);
         game.Save();
-        Show($"Undid the last paste ({lastPaste.Pieces.Count} pieces, {lastPaste.Belts.Count} belts).");
-        lastPaste = null;
+        redoable.Add(paste);
+        Show($"Undid a paste ({paste.Pieces.Count} pieces, {paste.Belts.Count} belts). /redo puts it back.");
+    }
+
+    // Requested: put the last undone paste back. Fresh ids (the old ones may have been reused), same poses.
+    [HideFromIl2Cpp]
+    private void Redo(GameWorld game)
+    {
+        if (redoable.Count == 0)
+        {
+            Show("Nothing to redo.");
+            return;
+        }
+        var undone = redoable[^1];
+        redoable.RemoveAt(redoable.Count - 1);
+        if (!game.HasRoom(undone.Pieces.Count, undone.Belts.Count))
+        {
+            redoable.Add(undone);
+            Show("The world is at the game's limit of structures or belts.");
+            return;
+        }
+        game.PrepareCrewSync();
+        var placed = PastePlan.Renumber(undone.Pieces, game.TakeStructureId).Where(game.Add).ToList();
+        var belts = undone.Belts.Select(b => (game.Add(b.Belt), b.Belt)).ToList();
+        game.Save();
+        Remember(new Paste(placed, belts, Time.unscaledTime + RecheckSeconds));
+        Show($"Redid a paste ({placed.Count} pieces, {belts.Count} belts).");
     }
 
     // In a crew, a piece only one player has can be removed by the game's reconciliation before it is sent. Put back
@@ -398,7 +439,7 @@ public sealed class WorldEditor : MonoBehaviour
 
     private sealed class Paste
     {
-        public Paste(List<PlacedPiece> pieces, List<int> belts, float checkAt)
+        public Paste(List<PlacedPiece> pieces, List<(int Id, WorldBelt Belt)> belts, float checkAt)
         {
             Pieces = pieces;
             Belts = belts;
@@ -406,7 +447,7 @@ public sealed class WorldEditor : MonoBehaviour
         }
 
         public List<PlacedPiece> Pieces { get; }
-        public List<int> Belts { get; }
+        public List<(int Id, WorldBelt Belt)> Belts { get; }
         public float CheckAt { get; }
         public bool Checked { get; set; }
     }
