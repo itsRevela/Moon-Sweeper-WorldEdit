@@ -16,6 +16,7 @@ internal sealed class GameWorld
     private const float AimReach = 80f; // metres
     private const int AimMask = ~(1 << 2); // the builder's mask: everything but Ignore Raycast
     private const string FallbackOwner = "moon-base";
+    private const int MaxTurns = 6; // grid turns tried when snapping toward a rotation (hexes have 6, squares 4)
 
     private GameWorld(MoonWorld world, MoonDepotBuilder builder, MoonDepotConstruction construction)
     {
@@ -97,14 +98,15 @@ internal sealed class GameWorld
         return list;
     }
 
-    public List<WorldBelt> Belts()
+    public List<(int Id, WorldBelt Belt)> Belts()
     {
         var origin = World.transform.position;
-        var list = new List<WorldBelt>();
+        var list = new List<(int, WorldBelt)>();
         foreach (var entry in World.conveyors)
         {
             var rec = entry.Value;
-            list.Add(new WorldBelt(ToNum(rec.start + origin), ToNum(rec.startDirection), ToNum(rec.end + origin), ToNum(rec.endDirection)));
+            list.Add((rec.id, new WorldBelt(ToNum(rec.start + origin), ToNum(rec.startDirection), ToNum(rec.end + origin),
+                ToNum(rec.endDirection))));
         }
         return list;
     }
@@ -180,13 +182,33 @@ internal sealed class GameWorld
     // ---- writing ----------------------------------------------------------------------------------------------------
 
     /// <summary>The pose /paste snaps its anchor piece to at the aim, from the game's own planner (or the bare ground).</summary>
-    public Pose SnapPose(int kind, Vector3 aim, int target, out string how)
+    /// <param name="want">For /paste-relative: the pose it would take unsnapped. The snap keeps the turn nearest its
+    /// rotation, and with nothing to snap to the piece goes exactly there.</param>
+    public Pose SnapPose(int kind, Vector3 aim, int target, out string how, Pose? want = null)
     {
-        var plan = World.PlanStructure(kind, aim, 0f, target, false, 0f, 0);
-        if (plan != null && plan.snapped)
+        MoonWorld.StructurePlan? best = null;
+        var bestMatch = -1f;
+        for (var turn = 0; turn < (want == null ? 1 : MaxTurns); turn++)
         {
-            how = string.IsNullOrEmpty(plan.hint) ? "snapped" : plan.hint;
-            return new Pose(ToNum(plan.position), ToNum(plan.rotation));
+            var plan = World.PlanStructure(kind, aim, 0f, target, false, 0f, turn);
+            if (plan == null || !plan.snapped)
+                continue;
+            var match = want is { } w ? Math.Abs(Num.Quaternion.Dot(ToNum(plan.rotation), w.Rotation)) : 1f;
+            if (match > bestMatch)
+            {
+                best = plan;
+                bestMatch = match;
+            }
+        }
+        if (best != null)
+        {
+            how = string.IsNullOrEmpty(best.hint) ? "snapped" : best.hint;
+            return new Pose(ToNum(best.position), ToNum(best.rotation));
+        }
+        if (want is { } exact)
+        {
+            how = "exact (no snap here)";
+            return exact;
         }
         World.DepotPose((aim - World.transform.position).normalized, 0f, out var position, out var rotation, kind);
         how = "free (no snap here)";

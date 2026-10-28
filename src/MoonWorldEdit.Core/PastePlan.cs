@@ -65,6 +65,16 @@ public sealed class PastePlan
         return again;
     }
 
+    /// <summary>Placed pieces ordered so each support comes before what it holds (reverse it to remove safely).</summary>
+    public static IReadOnlyList<PlacedPiece> SupportsFirst(IReadOnlyList<PlacedPiece> pieces)
+    {
+        if (pieces == null)
+            throw new ArgumentNullException(nameof(pieces));
+        var asCopied = pieces.Select(p => new CopiedPiece(p.Id, p.Kind, p.Pose, p.PlacedPose, p.Style, p.Support)).ToList();
+        var byId = pieces.ToDictionary(p => p.Id);
+        return SupportsFirst(asCopied).Select(c => byId[c.Ref]).ToList();
+    }
+
     private static List<CopiedPiece> SupportsFirst(IReadOnlyList<CopiedPiece> pieces)
     {
         var byRef = pieces.ToDictionary(p => p.Ref);

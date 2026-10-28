@@ -23,11 +23,16 @@ All notable changes to this project are documented here. The format follows
   flag (`MoonInput.Typing`), the one its crew chat sets, while it is open.
 
 ### Changed
+- `/paste-relative` now snaps like `/paste` (requested): at the spot relative to you, it takes the grid's snap, choosing
+  the turn closest to the facing it would have had. Where nothing snaps, it places exactly as before.
 - The command line is now a console (requested): a dark see-through strip in the top-left corner with a "> " prompt,
   the last 5 messages under it like a log (while closed, only those from the last 8 seconds), and the wand's live
   count.
 
 ### Added
+- `/delete` (requested) removes everything in the wand's selection, top pieces first and with no refund. It goes in the
+  undo history: `/undo` puts it back (supports first, fresh ids) and `/redo` deletes it again
+  (`PastePlan.SupportsFirst`). 4 tests (89 in all).
 - `/redo` (requested) puts back the paste `/undo` last removed, with fresh ids (the old ones may have been reused) and
   supports relinked (`PastePlan.Renumber`). `/undo` now steps back through the last 20 pastes; a new paste clears the
   redo history. 5 tests (85 in all).

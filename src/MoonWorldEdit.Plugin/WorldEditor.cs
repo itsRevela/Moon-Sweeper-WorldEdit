@@ -30,8 +30,8 @@ public sealed class WorldEditor : MonoBehaviour
     private Wand? wand;
     private Hologram? boxHologram, pieceHologram;
     private const int HistoryKept = 20; // pastes /undo can step back through
-    private readonly List<Paste> undoable = new(); // newest last
-    private readonly List<Paste> redoable = new(); // newest last; cleared by a new paste
+    private readonly List<Edit> undoable = new(); // newest last
+    private readonly List<Edit> redoable = new(); // newest last; cleared by a new paste or delete
 
     public WorldEditor(IntPtr pointer) : base(pointer) { }
 
@@ -114,6 +114,9 @@ public sealed class WorldEditor : MonoBehaviour
             case CommandKind.Redo:
                 Redo(game!);
                 break;
+            case CommandKind.Delete:
+                DeleteBox(game!);
+                break;
         }
     }
 
@@ -155,7 +158,7 @@ public sealed class WorldEditor : MonoBehaviour
         var box = SelectionBox.Between(a, b, frame, VerticalMargin);
         w.Box = box;
         w.Chosen = Selection.Pieces(w.Pieces, box, w.Shapes).ToList();
-        w.ChosenBelts = Selection.Belts(w.Belts, box).ToList();
+        w.ChosenBelts = w.Belts.Where(b => Selection.Belts(new[] { b.Belt }, box).Any()).ToList();
 
         boxHologram?.Draw(new[] { BoxCorners(box) }, BoxBeam);
         var signature = string.Join(",", w.Chosen.Select(p => p.Id));
@@ -166,7 +169,7 @@ public sealed class WorldEditor : MonoBehaviour
                 .Select(p => w.Shapes.TryGetValue(p.Id, out var c) ? Unity(c) : PointBox(p.Pose.Position)), OutlineBeam);
         }
         commandLine?.Status($"{w.Chosen.Count} pieces, {w.ChosenBelts.Count} belts selected. " +
-            (w.B == null ? "Right click to set point B." : "Type /copy, or left click to start again."));
+            (w.B == null ? "Right click to set point B." : "Type /copy or /delete, or left click to start again."));
     }
 
     [HideFromIl2Cpp]
@@ -186,7 +189,7 @@ public sealed class WorldEditor : MonoBehaviour
         var anchorPiece = w.Chosen.OrderBy(p => p.PlacedPose ? 0 : 1)
             .ThenBy(p => System.Numerics.Vector3.DistanceSquared(p.Pose.Position, a)).FirstOrDefault();
         var anchor = anchorPiece?.Pose ?? new Pose(a, System.Numerics.Quaternion.Identity);
-        Save(Copy.From(w.Chosen, w.ChosenBelts, anchor, game.PlayerPose()));
+        Save(Copy.From(w.Chosen, w.ChosenBelts.Select(b => b.Belt), anchor, game.PlayerPose()));
         Show($"Copied {w.Chosen.Count} pieces and {w.ChosenBelts.Count} belts. /rotate, then /paste.");
         EndWand();
     }
@@ -278,17 +281,23 @@ public sealed class WorldEditor : MonoBehaviour
             Show("Can't find your position right now.");
             return;
         }
-        if (copy.AnchorFor(player) is not { } anchor)
+        if (copy.AnchorFor(player) is not { } exact)
         {
             Show("This copy was made before /paste-relative existed: /copy it again.");
             return;
         }
+        // Requested: snap like /paste, at the spot relative to the player, keeping the turn nearest their facing.
+        var anchorPiece = copy.Pieces.OrderBy(p => p.Relative.Position.LengthSquared()).FirstOrDefault();
+        var how = "exact";
+        var anchor = anchorPiece != null
+            ? game.SnapPose(anchorPiece.Kind, GameWorld.ToUnity(exact.Position), 0, out how, exact)
+            : exact;
         if (!game.HasRoom(copy.Pieces.Count, copy.Belts.Count))
         {
             Show("The world is at the game's limit of structures or belts.");
             return;
         }
-        Place(game, copy, anchor, "relative to you");
+        Place(game, copy, anchor, how + ", relative to you");
     }
 
     [HideFromIl2Cpp]
@@ -307,7 +316,7 @@ public sealed class WorldEditor : MonoBehaviour
         }
         var belts = plan.Belts.Select(b => (game.Add(b), b)).ToList();
         game.Save();
-        Remember(new Paste(placed, belts, Time.unscaledTime + RecheckSeconds));
+        Remember(new Edit(placed, belts, true, Time.unscaledTime + RecheckSeconds));
         redoable.Clear();
         var distance = game.PlayerPose() is { } me ? $", {System.Numerics.Vector3.Distance(me.Position, anchor.Position):0} m from you" : "";
         Show($"Pasted {placed.Count} pieces and {belts.Count} belts ({how}{distance})" +
@@ -315,11 +324,35 @@ public sealed class WorldEditor : MonoBehaviour
     }
 
     [HideFromIl2Cpp]
-    private void Remember(Paste paste)
+    private void Remember(Edit edit)
     {
-        undoable.Add(paste);
+        undoable.Add(edit);
         if (undoable.Count > HistoryKept)
             undoable.RemoveAt(0);
+    }
+
+    // Requested: delete everything in the wand's selection. No refund (as /undo of a paste gives none), and it goes in
+    // the history, so /undo puts it back and /redo deletes it again.
+    [HideFromIl2Cpp]
+    private void DeleteBox(GameWorld game)
+    {
+        if (wand is not { A: not null, B: not null } w)
+        {
+            Show("Set points A and B with /wand first.");
+            return;
+        }
+        if (w.Chosen.Count == 0 && w.ChosenBelts.Count == 0)
+        {
+            Show("Nothing built inside the box.");
+            return;
+        }
+        var pieces = w.Chosen.Select(p => new PlacedPiece(p.Id, p.Kind, p.Pose, p.PlacedPose, p.Style, p.Support)).ToList();
+        var deleted = new Edit(PastePlan.SupportsFirst(pieces).ToList(), w.ChosenBelts.ToList(), false, 0f) { Checked = true };
+        RemoveAll(game, deleted);
+        Remember(deleted);
+        redoable.Clear();
+        Show($"Deleted {deleted.Pieces.Count} pieces and {deleted.Belts.Count} belts. /undo puts them back.");
+        EndWand();
     }
 
     [HideFromIl2Cpp]
@@ -330,18 +363,22 @@ public sealed class WorldEditor : MonoBehaviour
             Show("Nothing to undo.");
             return;
         }
-        var paste = undoable[^1];
+        var edit = undoable[^1];
         undoable.RemoveAt(undoable.Count - 1);
-        foreach (var (id, _) in Enumerable.Reverse(paste.Belts))
-            game.RemoveBelt(id);
-        foreach (var piece in Enumerable.Reverse(paste.Pieces))
-            game.RemoveStructure(piece.Id);
-        game.Save();
-        redoable.Add(paste);
-        Show($"Undid a paste ({paste.Pieces.Count} pieces, {paste.Belts.Count} belts). /redo puts it back.");
+        if (edit.Added)
+        {
+            RemoveAll(game, edit);
+            redoable.Add(edit);
+            Show($"Undid a paste ({edit.Pieces.Count} pieces, {edit.Belts.Count} belts). /redo puts it back.");
+        }
+        else
+        {
+            var back = AddAll(game, edit, added: false);
+            redoable.Add(back);
+            Show($"Undid a delete: put back {back.Pieces.Count} pieces and {back.Belts.Count} belts. /redo deletes them again.");
+        }
     }
 
-    // Requested: put the last undone paste back. Fresh ids (the old ones may have been reused), same poses.
     [HideFromIl2Cpp]
     private void Redo(GameWorld game)
     {
@@ -350,26 +387,53 @@ public sealed class WorldEditor : MonoBehaviour
             Show("Nothing to redo.");
             return;
         }
-        var undone = redoable[^1];
-        redoable.RemoveAt(redoable.Count - 1);
-        if (!game.HasRoom(undone.Pieces.Count, undone.Belts.Count))
+        var edit = redoable[^1];
+        if (edit.Added && !game.HasRoom(edit.Pieces.Count, edit.Belts.Count))
         {
-            redoable.Add(undone);
             Show("The world is at the game's limit of structures or belts.");
             return;
         }
-        game.PrepareCrewSync();
-        var placed = PastePlan.Renumber(undone.Pieces, game.TakeStructureId).Where(game.Add).ToList();
-        var belts = undone.Belts.Select(b => (game.Add(b.Belt), b.Belt)).ToList();
+        redoable.RemoveAt(redoable.Count - 1);
+        if (edit.Added)
+        {
+            var again = AddAll(game, edit, added: true);
+            Remember(again);
+            Show($"Redid a paste ({again.Pieces.Count} pieces, {again.Belts.Count} belts).");
+        }
+        else
+        {
+            RemoveAll(game, edit);
+            Remember(edit);
+            Show($"Redid a delete ({edit.Pieces.Count} pieces, {edit.Belts.Count} belts).");
+        }
+    }
+
+    // Removes an edit's belts, then its pieces from the top down (what is held before what holds it), without refunds.
+    [HideFromIl2Cpp]
+    private static void RemoveAll(GameWorld game, Edit edit)
+    {
+        foreach (var (id, _) in Enumerable.Reverse(edit.Belts))
+            game.RemoveBelt(id);
+        foreach (var piece in Enumerable.Reverse(edit.Pieces))
+            game.RemoveStructure(piece.Id);
         game.Save();
-        Remember(new Paste(placed, belts, Time.unscaledTime + RecheckSeconds));
-        Show($"Redid a paste ({placed.Count} pieces, {belts.Count} belts).");
+    }
+
+    // Puts an edit's pieces back (supports first, fresh ids) and its belts; returns the edit with the new ids.
+    [HideFromIl2Cpp]
+    private Edit AddAll(GameWorld game, Edit edit, bool added)
+    {
+        game.PrepareCrewSync();
+        var placed = PastePlan.Renumber(edit.Pieces, game.TakeStructureId).Where(game.Add).ToList();
+        var belts = edit.Belts.Select(b => (game.Add(b.Belt), b.Belt)).ToList();
+        game.Save();
+        return new Edit(placed, belts, added, Time.unscaledTime + RecheckSeconds);
     }
 
     // In a crew, a piece only one player has can be removed by the game's reconciliation before it is sent. Put back
     // anything missing once.
     [HideFromIl2Cpp]
-    private void Recheck(GameWorld game, Paste paste)
+    private void Recheck(GameWorld game, Edit paste)
     {
         paste.Checked = true;
         var missing = paste.Pieces.Where(p => !game.HasStructure(p.Id)).ToList();
@@ -418,7 +482,7 @@ public sealed class WorldEditor : MonoBehaviour
 
     private sealed class Wand
     {
-        public Wand(List<WorldPiece> pieces, Dictionary<int, System.Numerics.Vector3[]> shapes, List<WorldBelt> belts)
+        public Wand(List<WorldPiece> pieces, Dictionary<int, System.Numerics.Vector3[]> shapes, List<(int Id, WorldBelt Belt)> belts)
         {
             Pieces = pieces;
             Shapes = shapes;
@@ -427,24 +491,28 @@ public sealed class WorldEditor : MonoBehaviour
 
         public List<WorldPiece> Pieces { get; }
         public Dictionary<int, System.Numerics.Vector3[]> Shapes { get; }
-        public List<WorldBelt> Belts { get; }
+        public List<(int Id, WorldBelt Belt)> Belts { get; }
         public System.Numerics.Vector3? A { get; set; }
         public System.Numerics.Vector3? B { get; set; }
         public SurfaceFrame? Frame { get; set; }
         public SelectionBox? Box { get; set; }
         public List<WorldPiece> Chosen { get; set; } = new();
-        public List<WorldBelt> ChosenBelts { get; set; } = new();
+        public List<(int Id, WorldBelt Belt)> ChosenBelts { get; set; } = new();
         public string Drawn { get; set; } = "";
     }
 
-    private sealed class Paste
+    // One step in the history: pieces and belts a paste added (Added) or a /delete removed (not Added).
+    private sealed class Edit
     {
-        public Paste(List<PlacedPiece> pieces, List<(int Id, WorldBelt Belt)> belts, float checkAt)
+        public Edit(List<PlacedPiece> pieces, List<(int Id, WorldBelt Belt)> belts, bool added, float checkAt)
         {
             Pieces = pieces;
             Belts = belts;
+            Added = added;
             CheckAt = checkAt;
         }
+
+        public bool Added { get; }
 
         public List<PlacedPiece> Pieces { get; }
         public List<(int Id, WorldBelt Belt)> Belts { get; }
