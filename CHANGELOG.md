@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format follows
 
 - Pressing Enter to run a console command also opened the game's crew chat (`MoonTalk`), which opens on Enter. A
   Harmony patch skips the chat's update while the console is open, and until the key that closed it is released.
+- Typing in the console still moved the player and worked their tools. The console now sets the game's own typing
+  flag (`MoonInput.Typing`), the one its crew chat sets, while it is open.
 
 ### Changed
 - The command line is now a console (requested): a dark see-through strip in the top-left corner with a "> " prompt,

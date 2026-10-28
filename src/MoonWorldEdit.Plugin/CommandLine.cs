@@ -8,9 +8,9 @@ using UnityEngine.UI;
 
 namespace MoonWorldEdit.Plugin;
 
-// The command line (the game has no chat): "/" opens it, Enter runs the line, Escape closes it. While it is open the
-// game's own controls are held off the way the game holds them off for its menus (the walker's uiBlocked flag, and a
-// neutral input for the builder). Drawn as a console (requested): a dark see-through strip in the top-left corner, a
+// The command line: "/" opens it, Enter runs the line, Escape closes it. While it is open the game's controls are
+// held off the way its crew chat does (MoonInput.Typing: typing no longer moves the player, seen in-game), plus the
+// walker's uiBlocked flag and a neutral input for the builder; TalkGuard keeps Enter from opening the chat. Drawn as a console (requested): a dark see-through strip in the top-left corner, a
 // "> " prompt, and the last few messages under it like a log, fading after a few seconds when it is closed.
 internal sealed class CommandLine : IDisposable
 {
@@ -149,6 +149,7 @@ internal sealed class CommandLine : IDisposable
     {
         IsOpen = true;
         Busy = true;
+        MoonInput.Typing = true; // what the game's chat sets: play input (moving, tools) ignores the keyboard
         text.Clear().Append('/');
         blockedBuilder = builder;
         if (builder.walker != null)
@@ -161,6 +162,7 @@ internal sealed class CommandLine : IDisposable
         if (!IsOpen)
             return;
         IsOpen = false;
+        MoonInput.Typing = false;
         line.text = "";
         if (blockedBuilder != null)
         {
