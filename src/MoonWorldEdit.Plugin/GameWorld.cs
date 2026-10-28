@@ -59,6 +59,18 @@ internal sealed class GameWorld
     private static Num.Quaternion ToNum(Quaternion q) => new(q.x, q.y, q.z, q.w);
     private static Quaternion ToUnity(Num.Quaternion q) => new(q.X, q.Y, q.Z, q.W);
 
+    /// <summary>The player's pose: feet position, facing laid flat on the ground (radial up), as /paste-relative uses.</summary>
+    public Pose? PlayerPose()
+    {
+        var walker = Builder.walker;
+        if (walker == null)
+            return null;
+        var position = walker.transform.position;
+        var facing = walker.viewCamera != null ? walker.viewCamera.transform.forward : walker.transform.forward;
+        var frame = SurfaceFrame.At(ToNum(position), Centre, ToNum(facing));
+        return new Pose(ToNum(position), frame.Rotation);
+    }
+
     /// <summary>What the player is looking at: the hit point and the structure hit, if any.</summary>
     public bool Aim(out Vector3 point, out int structure, out Ray ray)
     {

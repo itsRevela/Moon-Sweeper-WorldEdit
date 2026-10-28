@@ -40,6 +40,13 @@ public readonly struct SurfaceFrame
         return new SurfaceFrame(origin, Vector3.Cross(up, forward), up, forward);
     }
 
+    /// <summary>The frame's orientation: turns local (right, up, forward) onto <see cref="Right"/>, <see cref="Up"/>, <see cref="Forward"/>.</summary>
+    public Quaternion Rotation => Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(new Matrix4x4(
+        Right.X, Right.Y, Right.Z, 0f,
+        Up.X, Up.Y, Up.Z, 0f,
+        Forward.X, Forward.Y, Forward.Z, 0f,
+        0f, 0f, 0f, 1f)));
+
     public Vector3 ToLocal(Vector3 world)
     {
         var d = world - Origin;

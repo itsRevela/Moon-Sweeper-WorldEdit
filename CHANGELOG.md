@@ -23,6 +23,10 @@ All notable changes to this project are documented here. The format follows
   count.
 
 ### Added
+- `/paste-relative` (requested): pastes the copy where it was relative to you when you copied it, turned with your
+  facing, with no snapping. `/copy` now records your position and facing, and the clipboard file is version 2
+  (version 1 files still read, but need a fresh `/copy` for this). `/paste` and `/paste-relative` say how far from you
+  the paste landed. 9 tests (80 in all).
 - Project set up: a Unity-free core library with tests, and a BepInEx IL2CPP plugin built against the game's interop,
   laid out like Moon Sweeper Mahjong, whose patched BepInEx it runs on.
 - Surface geometry for the commands (`MoonWorldEdit.Core`): a frame on the Moon's surface with radial up

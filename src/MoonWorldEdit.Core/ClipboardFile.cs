@@ -13,7 +13,7 @@ namespace MoonWorldEdit.Core;
 /// </summary>
 public static class ClipboardFile
 {
-    public const int Version = 1;
+    public const int Version = 2; // 2 adds the player's pose (/paste-relative); 1 still reads
     public const int MinKind = 1, MaxKind = 192; // the game's structure kinds (MoonWorld.ReadDepot)
     public const int MaxPieces = 9999, MaxBelts = 20000; // the game's own caps
 
@@ -41,6 +41,8 @@ public static class ClipboardFile
                 Qz = p.Relative.Rotation.Z,
                 Qw = p.Relative.Rotation.W,
             }).ToList(),
+            FromPlayer = copy.FromPlayer is { } fp ? new[] { fp.Position.X, fp.Position.Y, fp.Position.Z,
+                fp.Rotation.X, fp.Rotation.Y, fp.Rotation.Z, fp.Rotation.W } : null,
             Belts = copy.Belts.Select(b => new BeltData
             {
                 Start = Floats(b.Start),
@@ -65,7 +67,7 @@ public static class ClipboardFile
         }
         if (file == null || file.Pieces == null || file.Belts == null)
             throw new InvalidDataException("The clipboard file is empty or missing its pieces or belts.");
-        if (file.Version != Version)
+        if (file.Version != 1 && file.Version != Version)
             throw new InvalidDataException($"The clipboard file is version {file.Version}; this mod reads version {Version}.");
         if (file.Pieces.Count > MaxPieces || file.Belts.Count > MaxBelts)
             throw new InvalidDataException($"The clipboard holds more than the game allows ({MaxPieces} pieces, {MaxBelts} belts).");
@@ -95,7 +97,18 @@ public static class ClipboardFile
         }).ToList();
         var belts = file.Belts.Select((b, i) => new WorldBelt(Vector(b.Start, i), Vector(b.StartDirection, i), Vector(b.End, i),
             Vector(b.EndDirection, i))).ToList();
-        return new Copy(pieces, belts);
+        Pose? fromPlayer = null;
+        if (file.FromPlayer != null)
+        {
+            var f = file.FromPlayer;
+            if (f.Length != 7 || !f.All(float.IsFinite))
+                throw new InvalidDataException("The player pose isn't seven finite numbers.");
+            var q = new Quaternion(f[3], f[4], f[5], f[6]);
+            if (q.LengthSquared() < 1e-6f)
+                throw new InvalidDataException("The player pose has no rotation.");
+            fromPlayer = new Pose(new Vector3(f[0], f[1], f[2]), Quaternion.Normalize(q));
+        }
+        return new Copy(pieces, belts, fromPlayer);
     }
 
     private static float[] Floats(Vector3 v) => new[] { v.X, v.Y, v.Z };
@@ -112,6 +125,7 @@ public static class ClipboardFile
         public int Version { get; set; }
         public List<PieceData>? Pieces { get; set; }
         public List<BeltData>? Belts { get; set; }
+        public float[]? FromPlayer { get; set; }
     }
 
     private sealed class PieceData

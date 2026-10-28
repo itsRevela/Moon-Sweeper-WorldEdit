@@ -10,6 +10,7 @@ public enum CommandKind
     Copy,
     Rotate,
     Paste,
+    PasteRelative,
     Undo,
 }
 
@@ -17,7 +18,7 @@ public enum CommandKind
 public sealed record Command(CommandKind Kind, float Degrees = 0f, string Error = "")
 {
     public const float MaxDegrees = 3600f;
-    public const string Help = "Commands: /wand, /copy, /rotate <degrees>, /paste, /undo";
+    public const string Help = "Commands: /wand, /copy, /rotate <degrees>, /paste, /paste-relative, /undo";
 
     public static Command Parse(string? text)
     {
@@ -37,6 +38,7 @@ public sealed record Command(CommandKind Kind, float Degrees = 0f, string Error 
             "/wand" => CommandKind.Wand,
             "/copy" => CommandKind.Copy,
             "/paste" => CommandKind.Paste,
+            "/paste-relative" => CommandKind.PasteRelative,
             "/undo" => CommandKind.Undo,
             _ => CommandKind.Invalid,
         };

@@ -103,6 +103,9 @@ public sealed class WorldEditor : MonoBehaviour
             case CommandKind.Paste:
                 PasteHere(game!);
                 break;
+            case CommandKind.PasteRelative:
+                PasteRelative(game!);
+                break;
             case CommandKind.Undo:
                 Undo(game!);
                 break;
@@ -178,7 +181,7 @@ public sealed class WorldEditor : MonoBehaviour
         var anchorPiece = w.Chosen.OrderBy(p => p.PlacedPose ? 0 : 1)
             .ThenBy(p => System.Numerics.Vector3.DistanceSquared(p.Pose.Position, a)).FirstOrDefault();
         var anchor = anchorPiece?.Pose ?? new Pose(a, System.Numerics.Quaternion.Identity);
-        Save(Copy.From(w.Chosen, w.ChosenBelts, anchor));
+        Save(Copy.From(w.Chosen, w.ChosenBelts, anchor, game.PlayerPose()));
         Show($"Copied {w.Chosen.Count} pieces and {w.ChosenBelts.Count} belts. /rotate, then /paste.");
         EndWand();
     }
@@ -254,7 +257,38 @@ public sealed class WorldEditor : MonoBehaviour
         var anchor = anchorPiece != null
             ? game.SnapPose(anchorPiece.Kind, aim, target, out how)
             : new Pose(GameWorld.ToNum(aim), System.Numerics.Quaternion.Identity);
+        Place(game, copy, anchor, how);
+    }
 
+    // Requested: the copy lands where it was relative to the player when copied, turned with their facing. Exact, no
+    // snapping: where the player stands and looks decides it.
+    [HideFromIl2Cpp]
+    private void PasteRelative(GameWorld game)
+    {
+        var copy = Load();
+        if (copy == null)
+            return;
+        if (game.PlayerPose() is not { } player)
+        {
+            Show("Can't find your position right now.");
+            return;
+        }
+        if (copy.AnchorFor(player) is not { } anchor)
+        {
+            Show("This copy was made before /paste-relative existed: /copy it again.");
+            return;
+        }
+        if (!game.HasRoom(copy.Pieces.Count, copy.Belts.Count))
+        {
+            Show("The world is at the game's limit of structures or belts.");
+            return;
+        }
+        Place(game, copy, anchor, "relative to you");
+    }
+
+    [HideFromIl2Cpp]
+    private void Place(GameWorld game, Copy copy, Pose anchor, string how)
+    {
         game.PrepareCrewSync();
         var plan = PastePlan.For(copy, anchor, game.TakeStructureId);
         var placed = new List<PlacedPiece>();
@@ -269,7 +303,9 @@ public sealed class WorldEditor : MonoBehaviour
         var belts = plan.Belts.Select(game.Add).ToList();
         game.Save();
         lastPaste = new Paste(placed, belts, Time.unscaledTime + RecheckSeconds);
-        Show($"Pasted {placed.Count} pieces and {belts.Count} belts ({how}){(refused > 0 ? $"; the game refused to show {refused}" : "")}. /undo removes them.");
+        var distance = game.PlayerPose() is { } me ? $", {System.Numerics.Vector3.Distance(me.Position, anchor.Position):0} m from you" : "";
+        Show($"Pasted {placed.Count} pieces and {belts.Count} belts ({how}{distance})" +
+            $"{(refused > 0 ? $"; the game refused to show {refused}" : "")}. /undo removes them.");
     }
 
     [HideFromIl2Cpp]
