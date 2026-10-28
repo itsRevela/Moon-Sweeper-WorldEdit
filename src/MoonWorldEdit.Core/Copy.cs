@@ -55,11 +55,21 @@ public sealed class Copy
 /// <summary>Which pieces and belts the wand's box takes.</summary>
 public static class Selection
 {
-    /// <summary>Pieces whose base point is inside the box.</summary>
+    public const float MinOverlap = 0.2f; // metres a piece must reach into the box (neighbours that touch stay out)
+    public const float BeltDepthBelow = 4f; // metres under the box where belts still count
+
+    /// <summary>Pieces whose base point is inside the box (pieces without a known shape).</summary>
     public static IEnumerable<WorldPiece> Pieces(IEnumerable<WorldPiece> pieces, SelectionBox box) =>
         pieces.Where(p => box.Contains(p.Pose.Position));
 
-    /// <summary>Belts with both ends inside the box.</summary>
+    /// <summary>Pieces whose shape (world-space corners, by id) overlaps the box; base point when the shape is unknown.</summary>
+    public static IEnumerable<WorldPiece> Pieces(IEnumerable<WorldPiece> pieces, SelectionBox box,
+        IReadOnlyDictionary<int, Vector3[]> shapes) =>
+        pieces.Where(p => shapes.TryGetValue(p.Id, out var corners) && corners.Length > 0
+            ? box.Overlaps(corners, MinOverlap)
+            : box.Contains(p.Pose.Position));
+
+    /// <summary>Belts with both ends inside the box's outline, down to <see cref="BeltDepthBelow"/> under it.</summary>
     public static IEnumerable<WorldBelt> Belts(IEnumerable<WorldBelt> belts, SelectionBox box) =>
-        belts.Where(b => box.Contains(b.Start) && box.Contains(b.End));
+        belts.Where(b => box.ContainsFootprint(b.Start, BeltDepthBelow) && box.ContainsFootprint(b.End, BeltDepthBelow));
 }

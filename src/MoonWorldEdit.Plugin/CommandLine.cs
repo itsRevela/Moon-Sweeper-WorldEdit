@@ -20,6 +20,7 @@ internal sealed class CommandLine : IDisposable
     private readonly RectTransform stage;
     private readonly TMP_Text line;
     private readonly TMP_Text message;
+    private readonly TMP_Text status;
     private readonly StringBuilder text = new();
     private MoonDepotBuilder? blockedBuilder;
     private float messageUntil;
@@ -29,9 +30,17 @@ internal sealed class CommandLine : IDisposable
         stage = kit.Stage(parent, "WorldEdit command line", 90, false);
         line = kit.Text(stage, "", 40f, MoonWorkshopKit.FrameH - 110f, 900f, 40f, 26f, MoonWorkshopKit.Orange, kit.head);
         message = kit.Text(stage, "", 40f, MoonWorkshopKit.FrameH - 160f, 1400f, 40f, 22f, MoonWorkshopKit.Soft);
+        status = kit.Text(stage, "", 40f, MoonWorkshopKit.FrameH - 205f, 1400f, 40f, 22f, MoonWorkshopKit.Orange);
     }
 
     public bool IsOpen { get; private set; }
+
+    /// <summary>A standing line (the wand's live selection count); empty to clear. Not logged.</summary>
+    public void Status(string value)
+    {
+        if (status.text != value)
+            status.text = value;
+    }
 
     public void Show(string value)
     {

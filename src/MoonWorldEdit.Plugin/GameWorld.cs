@@ -97,6 +97,50 @@ internal sealed class GameWorld
         return list;
     }
 
+    /// <summary>Each piece's shape as the 8 corners of its 3D model's bounds (world space), for those with a model.</summary>
+    public Dictionary<int, Num.Vector3[]> Shapes(IEnumerable<WorldPiece> pieces)
+    {
+        var shapes = new Dictionary<int, Num.Vector3[]>();
+        foreach (var piece in pieces)
+        {
+            var view = Construction.ViewOf(piece.Id);
+            if (view == null)
+                continue;
+            var renderers = view.GetComponentsInChildren<Renderer>();
+            Bounds? total = null;
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null || !renderer.enabled)
+                    continue;
+                var b = renderer.bounds;
+                if (total is { } t)
+                {
+                    t.Encapsulate(b);
+                    total = t;
+                }
+                else
+                    total = b;
+            }
+            if (total is { } bounds)
+                shapes[piece.Id] = Corners(bounds.min, bounds.max);
+        }
+        return shapes;
+    }
+
+    /// <summary>The eight corners of an axis-aligned box, index = 4x + 2y + z (the order Hologram draws).</summary>
+    public static Num.Vector3[] Corners(Vector3 min, Vector3 max)
+    {
+        var corners = new Num.Vector3[8];
+        for (var i = 0; i < 8; i++)
+            corners[i] = new Num.Vector3((i & 4) != 0 ? max.x : min.x, (i & 2) != 0 ? max.y : min.y, (i & 1) != 0 ? max.z : min.z);
+        return corners;
+    }
+
+    /// <summary>A copy of the builder's own ghost material (it renders like the game's build previews).</summary>
+    public Material HologramMaterial() =>
+        Builder.ghostMaterial ?? Builder.snapMaterial ?? Builder.markerMaterial
+        ?? throw new InvalidOperationException("The builder has no preview material to draw the hologram with.");
+
     // Structural pieces keep their rotation; machines keep a yaw that the game turns into one with the ground's tilt.
     private Pose PoseOf(MoonDepotSnapshot rec)
     {

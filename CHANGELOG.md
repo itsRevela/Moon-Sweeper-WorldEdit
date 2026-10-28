@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The wand missed foundations: a piece only counted if its base point was within 1 m of the clicked height, so
+  clicking on top of tall foundations left them out. A piece now counts when its 3D model overlaps the box by at least
+  0.2 m (half its size for thin pieces such as floor tiles, so neighbours that only touch stay out). A belt counts when
+  both ends are inside the box's outline, down to 4 m below it.
+
 ### Added
 - Project set up: a Unity-free core library with tests, and a BepInEx IL2CPP plugin built against the game's interop,
   laid out like Moon Sweeper Mahjong, whose patched BepInEx it runs on.
@@ -29,5 +35,11 @@ All notable changes to this project are documented here. The format follows
   In a crew world it starts the crew diff before adding, so the host and crewmates receive the paste, and it puts
   back anything the crew sync drops in its first moments. `FindObjectOfType` is stripped from the game, so the world
   is found with `FindAnyObjectByType`.
+- The wand shows its selection (requested: it was hard to tell what the box held):
+  - a glowing hologram box stretches from point A to wherever you aim, live, and stays put once point B is set;
+  - every piece inside gets a green outline;
+  - a running count shows how many pieces and belts are selected.
+
+  Drawn with a copy of the builder's own ghost material.
 - Research for the in-game part (`research/`): the game's building, crew sync and snapping methods decompiled, and
   briefs for read-only DeepSeek research agents.

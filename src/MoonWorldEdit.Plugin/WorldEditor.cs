@@ -24,8 +24,10 @@ public sealed class WorldEditor : MonoBehaviour
     private readonly HashSet<string> reported = new();
     private int failures;
     private CommandLine? commandLine;
-    private bool wandArmed;
-    private Vector3? pointA, pointB;
+    private const int MaxOutlines = 400; // piece outlines drawn at once
+    private const float BoxBeam = 0.06f, OutlineBeam = 0.025f; // metres
+    private Wand? wand;
+    private Hologram? boxHologram, pieceHologram;
     private Paste? lastPaste;
 
     public WorldEditor(IntPtr pointer) : base(pointer) { }
@@ -39,8 +41,8 @@ public sealed class WorldEditor : MonoBehaviour
             var line = commandLine.Update(game?.Builder);
             if (line != null)
                 Run(line, game);
-            if (game != null && !commandLine.IsOpen && wandArmed)
-                UpdateWand(game);
+            if (game != null && !commandLine.IsOpen && wand != null)
+                UpdateWand(game, wand);
             if (game != null && lastPaste is { Checked: false } paste && Time.unscaledTime >= paste.CheckAt)
                 Recheck(game, paste);
         }
@@ -76,8 +78,9 @@ public sealed class WorldEditor : MonoBehaviour
         switch (command.Kind)
         {
             case CommandKind.Wand:
-                wandArmed = true;
-                pointA = pointB = null;
+                var pieces = game!.Pieces();
+                wand = new Wand(pieces, game.Shapes(pieces), game.Belts());
+                EnsureHolograms(game);
                 Show("Wand ready: left click point A, right click point B.");
                 break;
             case CommandKind.Copy:
@@ -95,58 +98,118 @@ public sealed class WorldEditor : MonoBehaviour
         }
     }
 
+    // Left click sets A (and clears B), right click sets B. Until B is set, the box follows the aim, so the player
+    // sees the selection grow; the box and the outline of every piece inside are drawn as holograms, with a count.
     [HideFromIl2Cpp]
-    private void UpdateWand(GameWorld game)
+    private void UpdateWand(GameWorld game, Wand w)
     {
         var mouse = Mouse.current;
-        if (mouse == null)
-            return;
-        var left = mouse.leftButton.wasPressedThisFrame;
-        var right = mouse.rightButton.wasPressedThisFrame;
-        if (!left && !right)
-            return;
-        if (!game.Aim(out var point, out _, out _))
-        {
+        var left = mouse != null && mouse.leftButton.wasPressedThisFrame;
+        var right = mouse != null && mouse.rightButton.wasPressedThisFrame;
+        var aimed = game.Aim(out var point, out _, out _);
+        if ((left || right) && !aimed)
             Show("Nothing there to mark; aim at a surface within 80 m.");
+        else if (left)
+        {
+            w.A = GameWorld.ToNum(point);
+            w.B = null;
+            // Line the box up with the nearest structure, so it follows the build grid.
+            var near = w.Pieces.OrderBy(p => System.Numerics.Vector3.DistanceSquared(p.Pose.Position, w.A.Value)).FirstOrDefault();
+            var forward = near != null
+                ? System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, near.Pose.Rotation)
+                : System.Numerics.Vector3.UnitZ;
+            w.Frame = SurfaceFrame.At(w.A.Value, game.Centre, forward);
+        }
+        else if (right && w.A != null)
+            w.B = GameWorld.ToNum(point);
+        else if (right)
+            Show("Left click point A first.");
+
+        if (w.A is not { } a || w.Frame is not { } frame)
+        {
+            commandLine?.Status("Wand: left click point A.");
             return;
         }
-        if (left)
-            pointA = point;
-        else
-            pointB = point;
-        Show($"Point {(left ? "A" : "B")} set{(pointA != null && pointB != null ? ". Both set: type /copy." : ".")}");
+        System.Numerics.Vector3? end = w.B ?? (aimed ? GameWorld.ToNum(point) : null);
+        if (end is not { } b)
+            return;
+        var box = SelectionBox.Between(a, b, frame, VerticalMargin);
+        w.Box = box;
+        w.Chosen = Selection.Pieces(w.Pieces, box, w.Shapes).ToList();
+        w.ChosenBelts = Selection.Belts(w.Belts, box).ToList();
+
+        boxHologram?.Draw(new[] { BoxCorners(box) }, BoxBeam);
+        var signature = string.Join(",", w.Chosen.Select(p => p.Id));
+        if (signature != w.Drawn)
+        {
+            w.Drawn = signature;
+            pieceHologram?.Draw(w.Chosen.Take(MaxOutlines)
+                .Select(p => w.Shapes.TryGetValue(p.Id, out var c) ? Unity(c) : PointBox(p.Pose.Position)), OutlineBeam);
+        }
+        commandLine?.Status($"{w.Chosen.Count} pieces, {w.ChosenBelts.Count} belts selected. " +
+            (w.B == null ? "Right click to set point B." : "Type /copy, or left click to start again."));
     }
 
     [HideFromIl2Cpp]
     private void CopyBox(GameWorld game)
     {
-        if (pointA is not { } a || pointB is not { } b)
+        if (wand is not { A: { } a, B: not null } w)
         {
             Show("Set points A and B with /wand first.");
             return;
         }
-        var centre = game.Centre;
-        var aNum = GameWorld.ToNum(a);
-        var pieces = game.Pieces();
-        // Lay the box out along the nearest structure at A, so it lines up with the build grid.
-        var near = pieces.OrderBy(p => System.Numerics.Vector3.DistanceSquared(p.Pose.Position, aNum)).FirstOrDefault();
-        var forward = near != null ? System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, near.Pose.Rotation) : System.Numerics.Vector3.UnitZ;
-        var frame = SurfaceFrame.At(aNum, centre, forward);
-        var box = SelectionBox.Between(aNum, GameWorld.ToNum(b), frame, VerticalMargin);
-        var chosen = Selection.Pieces(pieces, box).ToList();
-        var belts = Selection.Belts(game.Belts(), box).ToList();
-        if (chosen.Count == 0 && belts.Count == 0)
+        if (w.Chosen.Count == 0 && w.ChosenBelts.Count == 0)
         {
             Show("Nothing built inside the box.");
             return;
         }
         // The anchor: the structural piece nearest A (it snaps on /paste), or any piece, or A itself.
-        var anchorPiece = chosen.Where(p => p.PlacedPose).Concat(chosen)
-            .OrderBy(p => p.PlacedPose ? 0 : 1).ThenBy(p => System.Numerics.Vector3.DistanceSquared(p.Pose.Position, aNum)).FirstOrDefault();
-        var anchor = anchorPiece?.Pose ?? new Pose(aNum, System.Numerics.Quaternion.Identity);
-        var copy = Copy.From(chosen, belts, anchor);
-        Save(copy);
-        Show($"Copied {chosen.Count} pieces and {belts.Count} belts. /rotate, then /paste.");
+        var anchorPiece = w.Chosen.OrderBy(p => p.PlacedPose ? 0 : 1)
+            .ThenBy(p => System.Numerics.Vector3.DistanceSquared(p.Pose.Position, a)).FirstOrDefault();
+        var anchor = anchorPiece?.Pose ?? new Pose(a, System.Numerics.Quaternion.Identity);
+        Save(Copy.From(w.Chosen, w.ChosenBelts, anchor));
+        Show($"Copied {w.Chosen.Count} pieces and {w.ChosenBelts.Count} belts. /rotate, then /paste.");
+        EndWand();
+    }
+
+    [HideFromIl2Cpp]
+    private void EnsureHolograms(GameWorld game)
+    {
+        if (boxHologram != null)
+            return;
+        var template = game.HologramMaterial();
+        boxHologram = new Hologram("WorldEdit selection", template, new Color(0.35f, 0.9f, 1f, 0.55f));
+        pieceHologram = new Hologram("WorldEdit selected pieces", template, new Color(0.45f, 1f, 0.55f, 0.45f));
+    }
+
+    [HideFromIl2Cpp]
+    private void EndWand()
+    {
+        wand = null;
+        boxHologram?.Hide();
+        pieceHologram?.Hide();
+        commandLine?.Status("");
+    }
+
+    [HideFromIl2Cpp]
+    private static Vector3[] BoxCorners(SelectionBox box)
+    {
+        var corners = new Vector3[8];
+        for (var i = 0; i < 8; i++)
+            corners[i] = GameWorld.ToUnity(box.Frame.ToWorld(new System.Numerics.Vector3(
+                (i & 4) != 0 ? box.Max.X : box.Min.X, (i & 2) != 0 ? box.Max.Y : box.Min.Y, (i & 1) != 0 ? box.Max.Z : box.Min.Z)));
+        return corners;
+    }
+
+    [HideFromIl2Cpp]
+    private static Vector3[] Unity(System.Numerics.Vector3[] corners) => corners.Select(GameWorld.ToUnity).ToArray();
+
+    [HideFromIl2Cpp]
+    private static Vector3[] PointBox(System.Numerics.Vector3 p)
+    {
+        var c = GameWorld.ToUnity(p);
+        var h = new Vector3(0.3f, 0.3f, 0.3f);
+        return GameWorld.Corners(c - h, c + h).Select(GameWorld.ToUnity).ToArray();
     }
 
     [HideFromIl2Cpp]
@@ -258,7 +321,33 @@ public sealed class WorldEditor : MonoBehaviour
     [HideFromIl2Cpp]
     private void Show(string text) => commandLine?.Show(text);
 
-    private void OnDestroy() => commandLine?.Dispose();
+    private void OnDestroy()
+    {
+        commandLine?.Dispose();
+        boxHologram?.Dispose();
+        pieceHologram?.Dispose();
+    }
+
+    private sealed class Wand
+    {
+        public Wand(List<WorldPiece> pieces, Dictionary<int, System.Numerics.Vector3[]> shapes, List<WorldBelt> belts)
+        {
+            Pieces = pieces;
+            Shapes = shapes;
+            Belts = belts;
+        }
+
+        public List<WorldPiece> Pieces { get; }
+        public Dictionary<int, System.Numerics.Vector3[]> Shapes { get; }
+        public List<WorldBelt> Belts { get; }
+        public System.Numerics.Vector3? A { get; set; }
+        public System.Numerics.Vector3? B { get; set; }
+        public SurfaceFrame? Frame { get; set; }
+        public SelectionBox? Box { get; set; }
+        public List<WorldPiece> Chosen { get; set; } = new();
+        public List<WorldBelt> ChosenBelts { get; set; } = new();
+        public string Drawn { get; set; } = "";
+    }
 
     private sealed class Paste
     {
