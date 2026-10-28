@@ -11,6 +11,17 @@ All notable changes to this project are documented here. The format follows
   0.2 m (half its size for thin pieces such as floor tiles, so neighbours that only touch stay out). A belt counts when
   both ends are inside the box's outline, down to 4 m below it.
 
+- The command line didn't show at all. It hung off BepInEx's hidden manager object, whose UI never draws; it now has
+  its own scene object. Then its text didn't draw: the UI kit hides any line taller than its box, and the game's
+  fonts have tall lines. Each row is now one line that may overflow its box.
+- The hologram failed with "The builder has no preview material". The builder only creates its ghost material once
+  build mode has been used, so the hologram falls back to the game's URP shader with a glow.
+
+### Changed
+- The command line is now a console (requested): a dark see-through strip in the top-left corner with a "> " prompt,
+  the last 5 messages under it like a log (while closed, only those from the last 8 seconds), and the wand's live
+  count.
+
 ### Added
 - Project set up: a Unity-free core library with tests, and a BepInEx IL2CPP plugin built against the game's interop,
   laid out like Moon Sweeper Mahjong, whose patched BepInEx it runs on.

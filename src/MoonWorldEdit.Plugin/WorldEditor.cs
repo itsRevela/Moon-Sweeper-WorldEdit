@@ -24,6 +24,7 @@ public sealed class WorldEditor : MonoBehaviour
     private readonly HashSet<string> reported = new();
     private int failures;
     private CommandLine? commandLine;
+    private GameObject? uiRoot;
     private const int MaxOutlines = 400; // piece outlines drawn at once
     private const float BoxBeam = 0.06f, OutlineBeam = 0.025f; // metres
     private Wand? wand;
@@ -37,7 +38,17 @@ public sealed class WorldEditor : MonoBehaviour
         try
         {
             var game = GameWorld.Find();
-            commandLine ??= new CommandLine(transform);
+            // Built once a world is loaded and the game's UI fonts exist; text made before then doesn't show.
+            if (commandLine == null && game != null && CommandLine.FontsReady())
+            {
+                // Its own scene object: UI under BepInEx's hidden manager object (this component's) never draws.
+                uiRoot = new GameObject("WorldEdit UI");
+                UnityEngine.Object.DontDestroyOnLoad(uiRoot);
+                commandLine = new CommandLine(uiRoot.transform);
+                commandLine.Show("WorldEdit ready: press / for commands.");
+            }
+            if (commandLine == null)
+                return;
             var line = commandLine.Update(game?.Builder);
             if (line != null)
                 Run(line, game);

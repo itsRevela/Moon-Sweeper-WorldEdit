@@ -4,33 +4,65 @@ using MoonCleaners;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 
 namespace MoonWorldEdit.Plugin;
 
 // The command line (the game has no chat): "/" opens it, Enter runs the line, Escape closes it. While it is open the
 // game's own controls are held off the way the game holds them off for its menus (the walker's uiBlocked flag, and a
-// neutral input for the builder). Drawn with the game's UI kit, as Moon Mahjong's HUD is.
+// neutral input for the builder). Drawn as a console (requested): a dark see-through strip in the top-left corner, a
+// "> " prompt, and the last few messages under it like a log, fading after a few seconds when it is closed.
 internal sealed class CommandLine : IDisposable
 {
     private const int MaxLength = 64;
-    private const float MessageSeconds = 6f;
+    private const float Left = 24f, Top = 24f, Width = 900f, Pad = 12f;
+    private const float LineHeight = 28f, FontSize = 20f;
+    private const int HistoryLines = 5;
+    private const float MessageSeconds = 8f;
+    private static readonly Color Back = new(0.04f, 0.05f, 0.07f, 0.72f);
     private static readonly (Key Key, char Char)[] Keys = BuildKeys();
 
     private readonly MoonWorkshopKit kit = new();
     private readonly RectTransform stage;
+    private readonly Image back;
     private readonly TMP_Text line;
-    private readonly TMP_Text message;
+    private readonly TMP_Text[] history = new TMP_Text[HistoryLines];
     private readonly TMP_Text status;
+    private readonly System.Collections.Generic.List<(string Text, float At)> messages = new();
     private readonly StringBuilder text = new();
     private MoonDepotBuilder? blockedBuilder;
-    private float messageUntil;
 
     public CommandLine(Transform parent)
     {
-        stage = kit.Stage(parent, "WorldEdit command line", 90, false);
-        line = kit.Text(stage, "", 40f, MoonWorkshopKit.FrameH - 110f, 900f, 40f, 26f, MoonWorkshopKit.Orange, kit.head);
-        message = kit.Text(stage, "", 40f, MoonWorkshopKit.FrameH - 160f, 1400f, 40f, 22f, MoonWorkshopKit.Soft);
-        status = kit.Text(stage, "", 40f, MoonWorkshopKit.FrameH - 205f, 1400f, 40f, 22f, MoonWorkshopKit.Orange);
+        stage = kit.Stage(parent, "WorldEdit command line", 120, false);
+        back = new GameObject("WorldEdit console").AddComponent<Image>();
+        back.transform.SetParent(stage, false);
+        back.color = Back;
+        back.raycastTarget = false;
+        line = Row(0, MoonWorkshopKit.Orange);
+        for (var i = 0; i < HistoryLines; i++)
+            history[i] = Row(i + 1, MoonWorkshopKit.Soft);
+        status = Row(HistoryLines + 1, MoonWorkshopKit.Orange);
+        back.gameObject.SetActive(false);
+        Plugin.Logger.LogInfo($"WorldEdit command line ready (fonts: {(kit.head != null ? kit.head.name : "none")}, " +
+            $"{(kit.text != null ? kit.text.name : "none")})");
+    }
+
+    // One console row: left-aligned on one line, overflowing its box (the kit's text hides a line taller than its box).
+    private TMP_Text Row(int index, Color color)
+    {
+        var t = kit.Text(stage, "", Left + Pad, Top + Pad + index * LineHeight, Width - 2 * Pad, LineHeight, FontSize, color,
+            kit.text, TextAlignmentOptions.Left);
+        t.textWrappingMode = TextWrappingModes.NoWrap;
+        t.overflowMode = TextOverflowModes.Overflow;
+        return t;
+    }
+
+    /// <summary>Whether the game's UI fonts are loaded yet (text drawn without them doesn't show).</summary>
+    public static bool FontsReady()
+    {
+        var probe = new MoonWorkshopKit();
+        return probe.head != null && probe.text != null;
     }
 
     public bool IsOpen { get; private set; }
@@ -44,16 +76,40 @@ internal sealed class CommandLine : IDisposable
 
     public void Show(string value)
     {
-        message.text = value;
-        messageUntil = Time.unscaledTime + MessageSeconds;
+        messages.Add((value, Time.unscaledTime));
+        if (messages.Count > HistoryLines)
+            messages.RemoveAt(0);
         Plugin.Logger.LogInfo("WorldEdit: " + value);
+    }
+
+    // Open: the prompt and the whole recent log. Closed: only messages from the last few seconds, and the status.
+    private void Draw()
+    {
+        var now = Time.unscaledTime;
+        var shown = IsOpen ? messages : messages.FindAll(m => now - m.At < MessageSeconds);
+        var rows = 0;
+        line.text = IsOpen ? "> " + text + "_" : "";
+        if (IsOpen)
+            rows++;
+        for (var i = 0; i < HistoryLines; i++)
+        {
+            var value = i < shown.Count ? shown[i].Text : "";
+            if (history[i].text != value)
+                history[i].text = value;
+            if (value.Length > 0)
+                rows = Math.Max(rows, i + 2);
+        }
+        if (status.text.Length > 0)
+            rows = HistoryLines + 2;
+        back.gameObject.SetActive(rows > 0);
+        if (rows > 0)
+            MoonWorkshopKit.Place(back.rectTransform, Left, Top, Width, 2 * Pad + rows * LineHeight);
     }
 
     /// <summary>Reads the keyboard; returns a finished line when Enter is pressed.</summary>
     public string? Update(MoonDepotBuilder? builder)
     {
-        if (message.text.Length > 0 && Time.unscaledTime > messageUntil)
-            message.text = "";
+        Draw();
         var keyboard = Keyboard.current;
         if (keyboard == null)
             return null;
@@ -80,7 +136,7 @@ internal sealed class CommandLine : IDisposable
                 if (text.Length < MaxLength && keyboard[key].wasPressedThisFrame)
                     text.Append(c);
         }
-        line.text = IsOpen ? text + "_" : "";
+        Draw();
         return finished;
     }
 

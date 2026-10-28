@@ -25,6 +25,8 @@ internal sealed class Hologram : IDisposable
         foreach (var property in new[] { "_BaseColor", "_Color", "_TintColor" })
             if (material.HasProperty(property))
                 material.SetColor(property, color);
+        if (material.HasProperty("_EmissionColor"))
+            material.SetColor("_EmissionColor", color * 2f); // glows on the lit fallback shader
         root.AddComponent<MeshFilter>().sharedMesh = mesh;
         var renderer = root.AddComponent<MeshRenderer>();
         renderer.sharedMaterial = material;

@@ -136,10 +136,23 @@ internal sealed class GameWorld
         return corners;
     }
 
-    /// <summary>A copy of the builder's own ghost material (it renders like the game's build previews).</summary>
-    public Material HologramMaterial() =>
-        Builder.ghostMaterial ?? Builder.snapMaterial ?? Builder.markerMaterial
-        ?? throw new InvalidOperationException("The builder has no preview material to draw the hologram with.");
+    /// <summary>
+    /// What the hologram is drawn with: the builder's ghost material when it exists (the builder only makes it once build
+    /// mode has been used, seen in-game), otherwise a glowing material on the game's URP shader.
+    /// </summary>
+    public Material HologramMaterial()
+    {
+        var builderMaterial = Builder.ghostMaterial ?? Builder.snapMaterial ?? Builder.markerMaterial;
+        if (builderMaterial != null)
+            return builderMaterial;
+        var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null)
+            throw new InvalidOperationException("No shader to draw the hologram with (no builder material, no URP shader).");
+        var material = new Material(shader) { name = "WorldEdit hologram base" };
+        material.EnableKeyword("_EMISSION");
+        Plugin.Logger.LogInfo($"WorldEdit hologram drawn with the {shader.name} shader");
+        return material;
+    }
 
     // Structural pieces keep their rotation; machines keep a yaw that the game turns into one with the ground's tilt.
     private Pose PoseOf(MoonDepotSnapshot rec)
